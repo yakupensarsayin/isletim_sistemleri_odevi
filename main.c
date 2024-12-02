@@ -29,6 +29,12 @@ int main() {
         // onu null terminator ile degistiriyoruz
         // execvp'nin isleyisini bozmasin diye
         input[newline_index] = 0;
+
+        // eger input bossa devam et
+        if (strlen(input) == 0) continue; 
+
+        // cikis yapmak istiyorsa cik
+        if (strcmp(input, "quit") == 0) break;
         
         // bosluklara gore input'u tokenize ediyoruz
         char *token = strtok(input, " "); 
