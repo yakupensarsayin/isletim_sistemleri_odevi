@@ -11,9 +11,7 @@
 
 int main()
 {
-    char input[MAX_LEN];  // kullanicidan alinacak tam komut
-    char *args[MAX_ARGS]; // arguman dizisi, execvp'de kullanilacak
-    int i = 0;            // asagidaki dongude kullanilacak
+    char input[MAX_LEN]; // kullanicidan alinacak tam komut
 
     while (1)
     {
@@ -44,7 +42,10 @@ int main()
         // bosluklara gore input'u tokenize ediyoruz
         char *token = strtok(input, " ");
 
+        int i = 0;            // asagidaki dongude kullanilacak
+        char *args[MAX_ARGS]; // arguman dizisi, execvp'de kullanilacak
         char *input_file = NULL;
+        char *output_file = NULL;
 
         while (token != NULL)
         {
@@ -56,8 +57,18 @@ int main()
                     input_file = token;
                 }
             }
-
-            args[i++] = token;
+            else if (strcmp(token, ">") == 0)
+            {
+                token = strtok(NULL, " "); // dosya adini almaya calisiyoruz
+                if (token != NULL)
+                {
+                    output_file = token;
+                }
+            }
+            else
+            {
+                args[i++] = token;
+            }
             token = strtok(NULL, " ");
         }
 
@@ -82,6 +93,22 @@ int main()
                 // onu execvp'ye aktar
                 dup2(in_fd, STDIN_FILENO);
                 close(in_fd);
+            }
+
+            // eger cikis dosyasi mevcutsa
+            if (output_file)
+            {
+                // onu yazma modunda ac
+                // yoksa olustur
+                int out_fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                if (out_fd < 0)
+                {
+                    perror("Cikis dosyasi acilamadi");
+                    exit(1);
+                }
+                // yonlendirmeyi yap
+                dup2(out_fd, STDOUT_FILENO);
+                close(out_fd);
             }
 
             // gelen komutu calistir
