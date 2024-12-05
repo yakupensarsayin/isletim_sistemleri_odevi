@@ -1,3 +1,5 @@
+#define _POSIX_C_SOURCE 200809L
+#include <features.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -5,12 +7,21 @@
 #include <sys/wait.h>
 #include <string.h>
 #include <fcntl.h>
+#include <signal.h>
+#include <errno.h>
 
 #define MAX_ARGS 100
 #define MAX_LEN 100
 
+void sigchld_handler(int);
+
 int main()
 {
+    struct sigaction sa;
+    sa.sa_handler = sigchld_handler;
+    sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+    sigaction(SIGCHLD, &sa, NULL);
+
     char input[MAX_LEN]; // kullanicidan alinacak tam komut
 
     while (1)
@@ -35,9 +46,25 @@ int main()
         if (strlen(input) == 0)
             continue;
 
-        // cikis yapmak istiyorsa cik
         if (strcmp(input, "quit") == 0)
-            break;
+        {
+            // eger varsa arka plan islemlerini bekle
+            int status;
+            pid_t pid;
+            while ((pid = waitpid(-1, &status, 0)) > 0)
+            {
+                printf("[%d] retval: %d\n", pid, WEXITSTATUS(status));
+            }
+            break; // kabuk cikisi
+        }
+
+        // arka planda mi calistirilacagini kontrol et
+        int background = 0;
+        if (input[newline_index - 1] == '&')
+        {
+            background = 1;
+            input[newline_index - 1] = 0; // '&' karakterini kaldir
+        }
 
         // bosluklara gore input'u tokenize ediyoruz
         char *token = strtok(input, " ");
@@ -114,12 +141,19 @@ int main()
             // gelen komutu calistir
             execvp(args[0], args);
             // basarisiz ise hata mesaji ve cikis
-            perror("Hata: ");
+            perror("Hata");
             exit(EXIT_FAILURE);
         }
         else if (pid > 0)
         {
-            wait(NULL); // ebeveyn proses cocugu beklesin
+            if (!background)
+            {
+                waitpid(pid, NULL, 0); // eger arka plan islemi degilse ebeveyn cocugu beklesin
+            }
+            else
+            {
+                printf("[%d] basladi\n", pid); // obur turlu arka plan isleminin basladigini bildir
+            }
         }
         else
         {
@@ -129,4 +163,19 @@ int main()
     }
 
     exit(EXIT_SUCCESS);
+}
+
+void sigchld_handler(int sig)
+{
+    int saved_errno = errno;
+    int status;
+    pid_t pid;
+
+    // biten cocuk surecleri ekrana yazdiriyoruz
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+    {
+        printf("\n[%d] retval: %d\n", pid, WEXITSTATUS(status));
+        fflush(stdout);
+    }
+    errno = saved_errno;
 }
