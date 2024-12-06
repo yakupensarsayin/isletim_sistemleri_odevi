@@ -11,7 +11,8 @@
 #include <errno.h>
 
 #define MAX_ARGS 100
-#define MAX_LEN 100
+#define MAX_LEN 1000
+#define MAX_CMDS 100
 
 void sigchld_handler(int);
 
@@ -22,143 +23,138 @@ int main()
     sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
     sigaction(SIGCHLD, &sa, NULL);
 
-    char input[MAX_LEN]; // kullanicidan alinacak tam komut
+    char input[MAX_LEN]; // kullanıcıdan alınacak tam komut
 
     while (1)
     {
         printf("> ");
         fflush(stdout);
 
-        // Eger bir sebepten oturu input stdin'den alinamazsa:
         if (!fgets(input, MAX_LEN, stdin))
         {
-            perror("Girdi hatasi");
+            perror("Girdi hatası");
             continue;
         }
 
-        // satir sonunun bulundugu yeri buluyoruz
         int newline_index = strcspn(input, "\n");
-        // onu null terminator ile degistiriyoruz
-        // execvp'nin isleyisini bozmasin diye
         input[newline_index] = 0;
 
-        // eger input bossa devam et
         if (strlen(input) == 0)
             continue;
 
         if (strcmp(input, "quit") == 0)
         {
-            // eger varsa arka plan islemlerini bekle
             int status;
             pid_t pid;
             while ((pid = waitpid(-1, &status, 0)) > 0)
             {
                 printf("[%d] retval: %d\n", pid, WEXITSTATUS(status));
             }
-            break; // kabuk cikisi
+            break;
         }
 
-        // arka planda mi calistirilacagini kontrol et
-        int background = 0;
-        if (input[newline_index - 1] == '&')
+        // ";" ile komutları ayır
+        char *commands[MAX_CMDS];
+        int cmd_count = 0;
+        char *cmd = strtok(input, ";");
+        while (cmd != NULL)
         {
-            background = 1;
-            input[newline_index - 1] = 0; // '&' karakterini kaldir
+            commands[cmd_count++] = cmd;
+            cmd = strtok(NULL, ";");
         }
 
-        // bosluklara gore input'u tokenize ediyoruz
-        char *token = strtok(input, " ");
-
-        int i = 0;            // asagidaki dongude kullanilacak
-        char *args[MAX_ARGS]; // arguman dizisi, execvp'de kullanilacak
-        char *input_file = NULL;
-        char *output_file = NULL;
-
-        while (token != NULL)
+        // Her komut için işlem yap
+        for (int c = 0; c < cmd_count; c++)
         {
-            if (strcmp(token, "<") == 0)
+            char *current_cmd = commands[c];
+
+            // Arka planda mı çalıştırılacak kontrol et
+            int background = 0;
+            int len = strlen(current_cmd);
+            if (len > 0 && current_cmd[len - 1] == '&')
             {
-                token = strtok(NULL, " "); // dosya adini almaya calisiyoruz
-                if (token != NULL)
-                {
-                    input_file = token;
-                }
+                background = 1;
+                current_cmd[len - 1] = '\0'; // '&' karakterini kaldır
             }
-            else if (strcmp(token, ">") == 0)
+
+            // Komutu tokenize et
+            char *args[MAX_ARGS];
+            char *input_file = NULL;
+            char *output_file = NULL;
+            int i = 0;
+
+            char *token = strtok(current_cmd, " ");
+            while (token != NULL)
             {
-                token = strtok(NULL, " "); // dosya adini almaya calisiyoruz
-                if (token != NULL)
+                if (strcmp(token, "<") == 0)
                 {
-                    output_file = token;
+                    token = strtok(NULL, " ");
+                    if (token)
+                        input_file = token;
+                }
+                else if (strcmp(token, ">") == 0)
+                {
+                    token = strtok(NULL, " ");
+                    if (token)
+                        output_file = token;
+                }
+                else
+                {
+                    args[i++] = token;
+                }
+                token = strtok(NULL, " ");
+            }
+
+            args[i] = NULL;
+
+            pid_t pid = fork();
+            if (pid == 0)
+            {
+                // Girdi yönlendirmesi
+                if (input_file)
+                {
+                    int in_fd = open(input_file, O_RDONLY);
+                    if (in_fd < 0)
+                    {
+                        perror("Giriş dosyası açılamadı");
+                        exit(EXIT_FAILURE);
+                    }
+                    dup2(in_fd, STDIN_FILENO);
+                    close(in_fd);
+                }
+
+                // Çıktı yönlendirmesi
+                if (output_file)
+                {
+                    int out_fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                    if (out_fd < 0)
+                    {
+                        perror("Çıkış dosyası açılamadı");
+                        exit(EXIT_FAILURE);
+                    }
+                    dup2(out_fd, STDOUT_FILENO);
+                    close(out_fd);
+                }
+
+                execvp(args[0], args);
+                perror("Hata");
+                exit(EXIT_FAILURE);
+            }
+            else if (pid > 0)
+            {
+                if (!background)
+                {
+                    waitpid(pid, NULL, 0); // Arka planda değilse bekle
+                }
+                else
+                {
+                    printf("[%d] arka planda başlatıldı\n", pid);
                 }
             }
             else
             {
-                args[i++] = token;
+                perror("Fork başarısız oldu.");
             }
-            token = strtok(NULL, " ");
-        }
-
-        // execvp'teki argumanin sonuncusu NULL ile bitmeli
-        // elimizle yerlestiriyoruz
-        args[i] = NULL;
-
-        pid_t pid = fork();
-
-        if (pid == 0)
-        {
-            // eger girdi dosyasi mevcutsa
-            if (input_file)
-            {
-                // onu acmaya calis
-                int in_fd = open(input_file, O_RDONLY);
-                if (in_fd < 0)
-                {
-                    perror("Giris dosyasi acilamadi");
-                    exit(EXIT_FAILURE);
-                }
-                // onu execvp'ye aktar
-                dup2(in_fd, STDIN_FILENO);
-                close(in_fd);
-            }
-
-            // eger cikis dosyasi mevcutsa
-            if (output_file)
-            {
-                // onu yazma modunda ac
-                // yoksa olustur
-                int out_fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-                if (out_fd < 0)
-                {
-                    perror("Cikis dosyasi acilamadi");
-                    exit(1);
-                }
-                // yonlendirmeyi yap
-                dup2(out_fd, STDOUT_FILENO);
-                close(out_fd);
-            }
-
-            // gelen komutu calistir
-            execvp(args[0], args);
-            // basarisiz ise hata mesaji ve cikis
-            perror("Hata");
-            exit(EXIT_FAILURE);
-        }
-        else if (pid > 0)
-        {
-            if (!background)
-            {
-                waitpid(pid, NULL, 0); // eger arka plan islemi degilse ebeveyn cocugu beklesin
-            }
-            else
-            {
-                printf("[%d] basladi\n", pid); // obur turlu arka plan isleminin basladigini bildir
-            }
-        }
-        else
-        {
-            // herhangi bir sebepten oturu hata cikarsa:
-            perror("Fork basarisiz oldu.");
         }
     }
 
@@ -171,10 +167,9 @@ void sigchld_handler(int sig)
     int status;
     pid_t pid;
 
-    // biten cocuk surecleri ekrana yazdiriyoruz
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
     {
-        printf("\n[%d] retval: %d\n", pid, WEXITSTATUS(status));
+        printf("\n[%d] tamamlandı, retval: %d\n", pid, WEXITSTATUS(status));
         fflush(stdout);
     }
     errno = saved_errno;
