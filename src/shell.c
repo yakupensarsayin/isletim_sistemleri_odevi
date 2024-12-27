@@ -1,3 +1,11 @@
+/**
+ * Yakup Ensar Sayın   - g221210001
+ * Tunahan Demircioğlu - g221210373
+ * Sude Kocaacar       - g221210050
+ * Batuhan Özkanlı     - g221210067
+ * Berkay Çongar       - g211210063
+ */
+
 #include "../include/shell.h"
 
 void execute_single_command(char *command, int background)

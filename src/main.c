@@ -1,3 +1,11 @@
+/**
+ * Yakup Ensar Sayın   - g221210001
+ * Tunahan Demircioğlu - g221210373
+ * Sude Kocaacar       - g221210050
+ * Batuhan Özkanlı     - g221210067
+ * Berkay Çongar       - g211210063
+ */
+
 #define _POSIX_C_SOURCE 200809L
 #include "../include/shell.h"
 #include "../include/signal_handler.h"
